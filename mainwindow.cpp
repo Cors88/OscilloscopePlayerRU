@@ -1,18 +1,15 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QMediaDevices>
 #endif
 #include <QElapsedTimer>
-
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-
-    //列出音频设备
+    // перечислить аудиоустройства
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     audioDeviceList = QMediaDevices::audioOutputs();
 #else
@@ -34,18 +31,15 @@ MainWindow::MainWindow(QWidget *parent) :
             this->ui->comboBoxList->setCurrentIndex(i);
         i++;
     }
-
-    //设置日志最大行数
+    // установить максимальное количество строк в журнале
     ui->textEditInfo->document()->setMaximumBlockCount(100);
-
-    //解码器初始设置
+    // начальная настройка декодера
     decode.set( ui->horizontalSliderScaleX->value() <= 1000 ? ui->horizontalSliderScaleX->value() / 10 : ui->horizontalSliderScaleX->value() - 900,
                 ui->horizontalSliderScaleY->value() <= 1000 ? ui->horizontalSliderScaleY->value() / 10 : ui->horizontalSliderScaleY->value() - 900,
                 ui->horizontalSliderMoveX->value(),
                 ui->horizontalSliderMoveY->value(),
                 ui->horizontalSliderEdge->value());
-
-    //示波器初始设置
+    // начальная настройка осциллографа
     if (!oscilloscope.set(audioDeviceList[ui->comboBoxList->currentIndex()],
                         ui->comboBoxRate->currentText().toInt(),
                         ui->spinBoxChannel->value(),
@@ -54,168 +48,144 @@ MainWindow::MainWindow(QWidget *parent) :
                         ui->comboBoxFPS->currentText().toInt()))
     {
         QMessageBox msgBox;
-        msgBox.setText("音频输出设备不支持当前设置。");
+        msgBox.setText("Аудиоустройство не поддерживает текущие настройки.");
         msgBox.exec();
         return;
     }
 }
-
 MainWindow::~MainWindow()
 {
     delete ui;
 }
-
 void MainWindow::log(const QString text)
 {
     ui->textEditInfo->append(text);
 }
-
 void MainWindow::on_pushButtonOpen_clicked()
 {
     QString path = QFileDialog::getOpenFileName(this,
-                                                tr("Open"),
+                                                tr("Открыть"),
                                                 "",
-                                                tr("MPEG Video(*.mp4 *.mov *.mpg *.m4v *.avi *.flv *.rm *.rmvb);;Allfile(*.*)"));
+                                                tr("MPEG Video(*.mp4 *.mov *.mpg *.m4v *.avi *.flv *.rm *.rmvb);;Все файлы(*.*)"));
     if(!path.isEmpty())
     {
-        log("打开: " + path);
-
+        log("Открыто: " + path);
         switch(decode.open(path))
         {
         case 0:
             break;
         case 1:
-            QMessageBox::warning(this, "打开失败", "无法打开源文件。");
+            QMessageBox::warning(this, "Ошибка открытия", "Не удалось открыть исходный файл.");
             return;
         case 2:
-            QMessageBox::warning(this, "打开失败", "找不到流信息。");
+            QMessageBox::warning(this, "Ошибка открытия", "Не найдены потоковые данные.");
             return;
         default:
-            QMessageBox::warning(this, "打开失败", "未知原因打开失败。");
+            QMessageBox::warning(this, "Ошибка открытия", "Неизвестная причина ошибки открытия.");
             return;
         }
-
-        //显示文件信息
+        // отобразить информацию о файле
         auto fps = decode.fps();
         log("FPS: " + QString::number(double(fps.num) / double(fps.den), 'f', 2));
         auto width = decode.width();
         auto height = decode.height();
-        log("Size: " + QString::number(width) + " x " + QString::number(height));
-
-        //设置UI上的FPS
-        ui->comboBoxFPS->setCurrentText(QString::number(double(fps.num) / double(fps.den), 'f', 0));    //示波器输出的fps与视频的不同，因为如果一个场景点数过多，则需要更低fps（实际就算点数过多，也会完成一次刷新，只是会丢帧，但是其实也没关系，所以ui上的fps设置主要是是为了预留更合适的音频缓冲区而设定）
-
-        //设置缩放
+        log("Размер: " + QString::number(width) + " x " + QString::number(height));
+        // установить FPS в интерфейсе
+        ui->comboBoxFPS->setCurrentText(QString::number(double(fps.num) / double(fps.den), 'f', 0));    // FPS, используемый осциллографом, отличается от видео, потому что если количество точек в сцене слишком велико, необходимо более низкий FPS (на самом деле, даже если количество точек слишком велико, будет завершена одна обновление, но будут пропущены кадры, но это не так важно, поэтому настройка FPS в интерфейсе предназначена для резервирования более подходящего буфера звука)
+        // установить масштаб
         int value = width > height ? 256 * 100 / width : 256 * 100 / height;
         value = value <= 100 ? value * 10 : value + 900;
         ScaleXY = true;
         ui->horizontalSliderScaleX->setValue(value);
-
-        //设置状态
+        // установить состояние
         state = Ready;
     }
 }
-
 void MainWindow::on_pushButtonPlay_clicked()
 {
     if(!decode.isReady())
     {
-        QMessageBox::warning(this, "播放失败", "请先打开文件。");
+        QMessageBox::warning(this, "Ошибка воспроизведения", "Сначала откройте файл.");
         return;
     }
-
     switch (state) {
     case Inited:
-        QMessageBox::warning(this, "播放失败", "请先打开文件。");
+        QMessageBox::warning(this, "Ошибка воспроизведения", "Сначала откройте файл.");
         return;
     case Pause:
         state = Play;
-        ui->pushButtonPlay->setText("暂停");
+        ui->pushButtonPlay->setText("Пауза");
         return;
     case Play:
         state = Pause;
-        ui->pushButtonPlay->setText("播放");
+        ui->pushButtonPlay->setText("Воспроизведение");
         return;
     case Stop:
         return;
     case Ready:
         break;
     }
-
-    //根据帧率设置音频缓冲区
+    // настроить буфер звука в зависимости от частоты кадров
     auto fps = decode.fps();
-
     int out_size = MAX_AUDIO_FRAME_SIZE*2;
     uint8_t *play_buf = nullptr;
     play_buf = reinterpret_cast<uint8_t*>(av_malloc(size_t(out_size)));
-
-    //解码器启动
+    // запустить декодер
     decode.start();
-
-    //示波器输出启动
+    // запустить вывод осциллографа
     oscilloscope.start();
-
-    //计时器
+    // таймер
     QElapsedTimer time;
     time.start();
     int i = 0;
-
-    //状态设置
+    // установить состояние
     state = Play;
-    ui->pushButtonPlay->setText("暂停");
-
+    ui->pushButtonPlay->setText("Пауза");
     while(1)
     {
-        if(state == Stop)   //停止检测
+        if(state == Stop)   // проверка остановки
         {
 //            decode.stop();
             oscilloscope.stop();
             return;
         }
-
         if(1000 * double(i) * double(fps.den) / double(fps.num) < time.elapsed())
         {
-            //qDebug() << double(time.elapsed()) / 1000;    //显示时间
-            if(state == Play)  //在播放模式
+            //qDebug() << double(time.elapsed()) / 1000;    // показать время
+            if(state == Play)  // в режиме воспроизведения
             {
                 if((!decode.video.isEmpty()) && (!decode.videoEdge.isEmpty()) && (!decode.points.isEmpty()))
                 {
-                    //刷新视频图像
-                    ui->videoViewer->image = decode.video.dequeue();   //设置视频新图像
-                    ui->videoViewer->update();  //刷新视频图像
-                    ui->videoViewerEdge->image = decode.videoEdge.dequeue();   //设置视频新图像
-                    ui->videoViewerEdge->update();  //刷新视频图像
-
-                    //输出音频
-
-                    //刷新示波器输出
+                    // обновить изображение видео
+                    ui->videoViewer->image = decode.video.dequeue();   // установить новое изображение видео
+                    ui->videoViewer->update();  // обновить изображение видео
+                    ui->videoViewerEdge->image = decode.videoEdge.dequeue();   // установить новое изображение видео
+                    ui->videoViewerEdge->update();  // обновить изображение видео
+                    // вывести звук
+                    // обновить вывод осциллографа
                     oscilloscope.setPoints(decode.points.dequeue());
                 }
                 else
-                    log("丢帧");
+                    log("Пропущен кадр");
             }
-
             i++;
         }
         //QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
         QCoreApplication::processEvents();
-        QThread::msleep(1000 * double(fps.den) / double(fps.num) / 10);   //休息 每帧时间/10 ms
+        QThread::msleep(1000 * double(fps.den) / double(fps.num) / 10);   // отдыхать на 1/10 времени между кадрами
     }
 }
-
 void MainWindow::on_pushButtonTest_clicked()
 {
     if(!ui->pushButtonTest->isChecked())
     {
         oscilloscope.stop();
-        ui->pushButtonTest->setText("测试输出");
+        ui->pushButtonTest->setText("Тестовый вывод");
         return;
     }
-
-    //示波器输出启动
+    // запустить вывод осциллографа
     oscilloscope.start();
-
-    //设置波
+    // установить волны
     QVector<Point> points(0x20);
     points[0x00].x=0x00;
     points[0x01].x=0x10;
@@ -249,7 +219,6 @@ void MainWindow::on_pushButtonTest_clicked()
     points[0x1d].x=0x30;
     points[0x1e].x=0x20;
     points[0x1f].x=0x10;
-
     points[0x00].y=0x80;
     points[0x01].y=0x90;
     points[0x02].y=0xa0;
@@ -282,24 +251,20 @@ void MainWindow::on_pushButtonTest_clicked()
     points[0x1d].y=0x50;
     points[0x1e].y=0x60;
     points[0x1f].y=0x70;
-
     oscilloscope.setPoints(points);
-
-    ui->pushButtonTest->setText("停止测试");
+    ui->pushButtonTest->setText("Остановить тест");
 }
-
 void MainWindow::on_comboBoxList_activated(int index)
 {
-    //示波器
+    // осциллограф
     if (!oscilloscope.setAudioDevice(audioDeviceList[index]))
     {
         QMessageBox msgBox;
-        msgBox.setText("音频输出设备不支持当前设置。");
+        msgBox.setText("Аудиоустройство не поддерживает текущие настройки.");
         msgBox.exec();
         return;
     }
 }
-
 void MainWindow::on_comboBoxRate_currentTextChanged(const QString &arg1)
 {
     int rate = arg1.toInt();
@@ -307,43 +272,38 @@ void MainWindow::on_comboBoxRate_currentTextChanged(const QString &arg1)
     {
         rate = 1;
     }
-    //示波器
+    // осциллограф
     if (!oscilloscope.setSampleRate(rate))
     {
         QMessageBox msgBox;
-        msgBox.setText("音频输出设备不支持当前设置。");
+        msgBox.setText("Аудиоустройство не поддерживает текущие настройки.");
         msgBox.exec();
         return;
     }
 }
-
 void MainWindow::on_spinBoxChannel_valueChanged(int arg1)
 {
     ui->spinBoxChannelX->setMaximum(arg1 - 1);
     ui->spinBoxChannelY->setMaximum(arg1 - 1);
-
-    //示波器
+    // осциллограф
     if (!oscilloscope.setChannelCount(arg1))
     {
         QMessageBox msgBox;
-        msgBox.setText("音频输出设备不支持当前设置。");
+        msgBox.setText("Аудиоустройство не поддерживает текущие настройки.");
         msgBox.exec();
         return;
     }
 }
-
 void MainWindow::on_spinBoxChannelX_valueChanged(int arg1)
 {
-    //示波器
+    // осциллограф
     oscilloscope.setChannelX(arg1);
 }
-
 void MainWindow::on_spinBoxChannelY_valueChanged(int arg1)
 {
-    //示波器
+    // осциллограф
     oscilloscope.setChannelY(arg1);
 }
-
 void MainWindow::on_comboBoxFPS_currentTextChanged(const QString &arg1)
 {
     int fps = arg1.toInt();
@@ -351,43 +311,37 @@ void MainWindow::on_comboBoxFPS_currentTextChanged(const QString &arg1)
     {
         fps = 1;
     }
-    //示波器
+    // осциллограф
     oscilloscope.setFPS(fps);
 }
-
 void MainWindow::on_horizontalSliderScaleX_valueChanged(int value)
 {
-    if(ScaleXY) ui->horizontalSliderScaleY->setValue(value);    //等比缩放
+    if(ScaleXY) ui->horizontalSliderScaleY->setValue(value);    // пропорциональное масштабирование
     value = value <= 1000 ? value / 10 : value - 900;
     decode.setScaleX(value);
-    ui->labelScaleX->setText("缩放X：" + QString::number(value) + " %");
+    ui->labelScaleX->setText("Масштаб X: " + QString::number(value) + " %");
 }
-
 void MainWindow::on_horizontalSliderScaleY_valueChanged(int value)
 {
     value = value <= 1000 ? value / 10 : value - 900;
     decode.setScaleY(value);
-    ui->labelScaleY->setText("缩放Y：" + QString::number(value) + " %");
+    ui->labelScaleY->setText("Масштаб Y: " + QString::number(value) + " %");
 }
-
 void MainWindow::on_horizontalSliderMoveX_valueChanged(int value)
 {
     decode.setMoveX(value);
-    ui->labelMoveX->setText("偏移X：" + QString::number(value));
+    ui->labelMoveX->setText("Смещение X: " + QString::number(value));
 }
-
 void MainWindow::on_horizontalSliderMoveY_valueChanged(int value)
 {
     decode.setMoveY(value);
-    ui->labelMoveY->setText("偏移Y：" + QString::number(value));
+    ui->labelMoveY->setText("Смещение Y: " + QString::number(value));
 }
-
 void MainWindow::on_horizontalSliderEdge_valueChanged(int value)
 {
     decode.setEdge(value);
-    ui->labelEdge->setText("边缘阈值：" + QString::number(value));
+    ui->labelEdge->setText("Порог края: " + QString::number(value));
 }
-
 void MainWindow::on_horizontalSliderScaleY_sliderReleased()
 {
     ScaleXY = (ui->horizontalSliderScaleX->value() == ui->horizontalSliderScaleY->value());
